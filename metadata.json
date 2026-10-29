@@ -1,0 +1,6 @@
+{
+  "name": "Faucon Express Niamey",
+  "description": "Plateforme de livraison express en temps réel à Niamey avec suivi GPS interactif, paiements sécurisés MY Nita, Amanata et espèces, application livreur hors-ligne et tableau de bord propriétaire.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
