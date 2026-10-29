@@ -8,17 +8,112 @@ import {
 } from '../data/niameyData';
 
 const STORAGE_KEYS = {
-  ORDERS: 'faucon_orders_v1',
-  DRIVERS: 'faucon_drivers_v1',
+  ORDERS: 'faucon_orders_live_v2',
+  DRIVERS: 'faucon_drivers_user_v1',
   STOCK: 'faucon_stock_v1',
   STOCK_MOVEMENTS: 'faucon_stock_mvts_v1',
-  TRANSACTIONS: 'faucon_transactions_v1',
-  CHAT_MESSAGES: 'faucon_chat_v1',
+  TRANSACTIONS: 'faucon_transactions_live_v2',
+  CHAT_MESSAGES: 'faucon_chat_live_v2',
   SETTINGS: 'faucon_settings_v1',
   OFFLINE_QUEUE: 'faucon_offline_queue_v1',
   NOTIFICATIONS: 'faucon_notifications_v1',
   OFFLINE_STATUS: 'faucon_force_offline'
 };
+
+// Clean phone for WhatsApp (+22799614098 -> 22799614098)
+export function sanitizeWhatsAppPhone(phone: string): string {
+  const cleaned = phone.replace(/[^0-9]/g, '');
+  if (cleaned.startsWith('227')) return cleaned;
+  if (cleaned.length === 8) return `227${cleaned}`;
+  return cleaned || '22799614098';
+}
+
+// Generate pre-formatted text for WhatsApp dispatch
+export function formatOrderWhatsAppText(order: OrderItem): string {
+  const lines = [
+    `🦅 *NOUVELLE COMMANDE - FAUCON EXPRESS NIAMEY*`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `📋 *N° Commande:* ${order.orderNumber}`,
+    `👤 *Client:* ${order.customer.name}`,
+    `📞 *Tél Client:* ${order.customer.phone}`,
+    ``,
+    `📍 *Ramassage:* ${order.pickup.districtName}`,
+    `📌 *Détail lieu:* ${order.pickup.addressDetail || 'Repère principal'}`,
+    ``,
+    `🎯 *Livraison:* ${order.dropoff.districtName}`,
+    `📌 *Détail lieu:* ${order.dropoff.addressDetail || 'Destination'}`,
+    `📦 *Destinataire:* ${order.dropoff.recipientName} (${order.dropoff.recipientPhone})`,
+    ``,
+    `📦 *Colis:* ${order.parcel.type} · ${order.parcel.weightKg} kg`,
+    `📝 *Description:* ${order.parcel.description}`,
+    ``,
+    `💰 *Montant Total:* ${order.pricing.totalFcfa.toLocaleString()} FCFA`,
+    `💳 *Paiement:* ${order.payment.method} (${order.payment.status === 'CONFIRMED' ? 'Payé' : 'À régler en espèces'})`,
+    `🔐 *Code OTP Livraison:* ${order.delivery.deliveryOtp}`,
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+    `⚡ Transmis en direct à M. Abdoulkader Alio (+227 99 61 40 98)`
+  ];
+  return lines.join('\n');
+}
+
+export function formatOrderWhatsAppUrl(order: OrderItem, recipientPhone: string = '22799614098'): string {
+  const cleanPhone = sanitizeWhatsAppPhone(recipientPhone);
+  const text = formatOrderWhatsAppText(order);
+  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+}
+
+export function formatChatMessageWhatsAppUrl(
+  message: string, 
+  orderNumber?: string, 
+  senderName: string = 'Client',
+  recipientPhone: string = '22799614098'
+): string {
+  const cleanPhone = sanitizeWhatsAppPhone(recipientPhone);
+  const prefix = orderNumber ? `[Faucon Express · Commande ${orderNumber}]` : `[Faucon Express]`;
+  const fullText = `🦅 ${prefix}\nMessage de *${senderName}* :\n\n"${message}"\n\nEnvoyé depuis la messagerie Faucon Express.`;
+  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(fullText)}`;
+}
+
+// Notification chime using Web Audio API
+export function playNotificationChime() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12); // A5
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.45);
+  } catch {
+    // Non-fatal if blocked by autoplay restrictions
+  }
+}
+
+// Multi-tab broadcast channel
+let broadcastChannel: BroadcastChannel | null = null;
+if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
+  try {
+    broadcastChannel = new BroadcastChannel('faucon_express_events');
+  } catch {
+    broadcastChannel = null;
+  }
+}
+
+export function broadcastOrderChange(order: OrderItem, type: 'CREATED' | 'UPDATED' = 'CREATED') {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('faucon_order_event', { detail: { order, type } }));
+    if (broadcastChannel) {
+      broadcastChannel.postMessage({ order, type, timestamp: Date.now() });
+    }
+  }
+}
 
 // Generate realistic order code: FCX-2026-XXXX
 export function generateOrderNumber(): string {
@@ -60,18 +155,48 @@ export const StorageService = {
   getDrivers(): Driver[] {
     const raw = localStorage.getItem(STORAGE_KEYS.DRIVERS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.DRIVERS, JSON.stringify(INITIAL_DRIVERS));
-      return INITIAL_DRIVERS;
+      // Clean start: empty drivers list as requested by user
+      localStorage.setItem(STORAGE_KEYS.DRIVERS, JSON.stringify([]));
+      return [];
     }
     try {
       return JSON.parse(raw);
     } catch {
-      return INITIAL_DRIVERS;
+      return [];
     }
   },
 
   saveDrivers(drivers: Driver[]): void {
     localStorage.setItem(STORAGE_KEYS.DRIVERS, JSON.stringify(drivers));
+  },
+
+  addDriver(driverData: Omit<Driver, 'id'>): Driver {
+    const drivers = this.getDrivers();
+    const newDriver: Driver = {
+      ...driverData,
+      id: `drv-${Date.now()}`
+    };
+    drivers.push(newDriver);
+    this.saveDrivers(drivers);
+    return newDriver;
+  },
+
+  deleteDriver(driverId: string): void {
+    const drivers = this.getDrivers().filter(d => d.id !== driverId);
+    this.saveDrivers(drivers);
+  },
+
+  clearAllDrivers(): void {
+    this.saveDrivers([]);
+  },
+
+  updateDriver(driverId: string, updates: Partial<Driver>): Driver | null {
+    const drivers = this.getDrivers();
+    const idx = drivers.findIndex(d => d.id === driverId);
+    if (idx === -1) return null;
+    drivers[idx] = { ...drivers[idx], ...updates };
+    this.saveDrivers(drivers);
+    return drivers[idx];
   },
 
   updateDriverStatus(driverId: string, status: Driver['status'], currentDistrict?: string, coords?: { lat: number; lng: number }): void {
@@ -153,14 +278,18 @@ export const StorageService = {
   getTransactions(): FinancialTransaction[] {
     const raw = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(INITIAL_TRANSACTIONS));
-      return INITIAL_TRANSACTIONS;
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
+      return [];
     }
     try {
       return JSON.parse(raw);
     } catch {
-      return INITIAL_TRANSACTIONS;
+      return [];
     }
+  },
+
+  clearAllTransactions(): void {
+    localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify([]));
   },
 
   recordTransaction(tx: Omit<FinancialTransaction, 'id' | 'timestamp'>): FinancialTransaction {
@@ -179,15 +308,18 @@ export const StorageService = {
   getOrders(): OrderItem[] {
     const raw = localStorage.getItem(STORAGE_KEYS.ORDERS);
     if (!raw) {
-      const seeded = this.createSeedOrders();
-      localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(seeded));
-      return seeded;
+      localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify([]));
+      return [];
     }
     try {
       return JSON.parse(raw);
     } catch {
       return [];
     }
+  },
+
+  clearAllOrders(): void {
+    localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify([]));
   },
 
   saveOrders(orders: OrderItem[]): void {
@@ -257,16 +389,16 @@ export const StorageService = {
         paidAt: now
       },
       delivery: {
-        status: 'ASSIGNED',
-        driverId: availableDriver.id,
-        driverName: availableDriver.name,
-        driverPhone: availableDriver.phone,
-        driverVehicle: availableDriver.vehicle,
+        status: availableDriver ? 'ASSIGNED' : 'CREATED',
+        driverId: availableDriver?.id,
+        driverName: availableDriver?.name || "En cours d'attribution",
+        driverPhone: availableDriver?.phone || '',
+        driverVehicle: availableDriver?.vehicle || 'Moto Boxer 150',
         currentCoords: {
           lat: pickupDistrict.lat + 0.003,
           lng: pickupDistrict.lng + 0.002
         },
-        progressPercent: 20,
+        progressPercent: availableDriver ? 20 : 10,
         estimatedMinutes: 25,
         startedAt: now,
         deliveryOtp: otp
@@ -277,14 +409,14 @@ export const StorageService = {
         {
           id: `sms-init-client-${Date.now()}`,
           recipient: defaultCustomerPhone,
-          message: `Faucon Express: Votre commande ${orderNumber} est validée! Suivi GPS en direct. Livreur: ${availableDriver.name} (${availableDriver.phone}). Code de livraison: ${otp}.`,
+          message: `Faucon Express: Votre commande ${orderNumber} est validée! ${availableDriver ? `Livreur: ${availableDriver.name} (${availableDriver.phone}).` : "Livreur en cours d'attribution."} Code de livraison: ${otp}.`,
           sentAt: now,
           status: 'DELIVERED'
         },
         {
           id: `sms-owner-${Date.now()}`,
           recipient: settings.ownerPhone, // +227 99 61 40 98
-          message: `[FAUCON EXPRESS DISPATCH] Nouvelle course ${orderNumber} de ${pickupDistrict.name} vers ${dropoffDistrict.name}. Montant: ${orderData.pricing?.totalFcfa || 2000} FCFA (${orderData.payment?.method || 'MY_NITA'}). Livreur: ${availableDriver.name}.`,
+          message: `[FAUCON EXPRESS DISPATCH] Nouvelle course ${orderNumber} de ${pickupDistrict.name} vers ${dropoffDistrict.name}. Montant: ${orderData.pricing?.totalFcfa || 2000} FCFA (${orderData.payment?.method || 'MY_NITA'}). ${availableDriver ? `Livreur: ${availableDriver.name}` : 'À attribuer dans votre tableau de bord.'}`,
           sentAt: now,
           status: 'DELIVERED'
         }
@@ -322,6 +454,8 @@ export const StorageService = {
       orderNumber,
       type: 'ORDER_UPDATE'
     });
+
+    broadcastOrderChange(newOrder, 'CREATED');
 
     return newOrder;
   },
@@ -423,6 +557,7 @@ export const StorageService = {
 
     orders[orderIndex] = order;
     this.saveOrders(orders);
+    broadcastOrderChange(order, 'UPDATED');
 
     this.addNotification({
       title: `Mise à jour Course ${order.orderNumber}`,
@@ -562,165 +697,8 @@ export const StorageService = {
     return count;
   },
 
-  // Seed default orders
+  // Seed default orders - empty for clean production usage
   createSeedOrders(): OrderItem[] {
-    const now = '2026-10-29 09:12';
-    return [
-      {
-        id: 'ord-seed-01',
-        orderNumber: 'FCX-2026-7841',
-        customer: {
-          name: 'Ibrahim Dan Baba',
-          phone: '+227 96 11 22 33',
-          verified: true,
-          verificationCode: '4920'
-        },
-        pickup: {
-          districtId: 'plateau',
-          districtName: 'Plateau / Centre des Affaires',
-          addressDetail: 'Face Immeuble Sonitel, Rue de la BCEAO',
-          contactPhone: '+227 96 11 22 33',
-          lat: 13.5152,
-          lng: 2.1105
-        },
-        dropoff: {
-          districtId: 'harobanda',
-          districtName: 'Harobanda (Rive Droite)',
-          addressDetail: 'Campus UAM, Faculté des Sciences',
-          recipientName: 'Dr. Halidou Seyni',
-          recipientPhone: '+227 90 22 33 44',
-          lat: 13.5010,
-          lng: 2.1010
-        },
-        parcel: {
-          type: 'DOCUMENTS',
-          weightKg: 0.8,
-          description: 'Dossier confidentiel d’appels d’offres et contrats scellés',
-          fragile: false
-        },
-        pricing: {
-          baseFareFcfa: 1500,
-          distanceFeeFcfa: 500,
-          priorityExpressFeeFcfa: 500,
-          totalFcfa: 2500,
-          driverCommissionFcfa: 1750
-        },
-        payment: {
-          method: 'MY_NITA',
-          status: 'PAID',
-          reference: 'NITA-TX-99812401',
-          payerPhone: '+227 96 11 22 33',
-          paidAt: '2026-10-29 09:14'
-        },
-        delivery: {
-          status: 'IN_TRANSIT',
-          driverId: 'drv-01',
-          driverName: 'Moussa Ibrahim',
-          driverPhone: '+227 96 45 12 80',
-          driverVehicle: 'Moto Boxer 150',
-          currentCoords: { lat: 13.5085, lng: 2.1060 }, // Sur le Pont Kennedy
-          progressPercent: 70,
-          estimatedMinutes: 8,
-          startedAt: '2026-10-29 09:15',
-          deliveryOtp: '4920'
-        },
-        createdAt: now,
-        securityHash: 'E2E-SHA256-7841BCEAO',
-        smsLog: [
-          {
-            id: 'sms-01',
-            recipient: '+227 96 11 22 33',
-            message: 'Faucon Express: Commande FCX-2026-7841 confirmée. Livreur Moussa (+227 96 45 12 80). Code OTP: 4920',
-            sentAt: '09:12',
-            status: 'DELIVERED'
-          },
-          {
-            id: 'sms-02',
-            recipient: '+227 99 61 40 98',
-            message: '[FAUCON DISPATCH] Course FCX-2026-7841: Plateau -> Harobanda (2500 FCFA MY Nita) assignée à Moussa.',
-            sentAt: '09:13',
-            status: 'DELIVERED'
-          },
-          {
-            id: 'sms-03',
-            recipient: '+227 90 22 33 44',
-            message: 'Faucon Express: Votre colis approche via Pont Kennedy. Arrivée prévue dans 8 min.',
-            sentAt: '09:20',
-            status: 'DELIVERED'
-          }
-        ]
-      },
-      {
-        id: 'ord-seed-02',
-        orderNumber: 'FCX-2026-7840',
-        customer: {
-          name: 'Amina Kountché',
-          phone: '+227 90 44 55 66',
-          verified: true,
-          verificationCode: '8112'
-        },
-        pickup: {
-          districtId: 'wadata',
-          districtName: 'Wadata / Grand Marché',
-          addressDetail: 'Boutique Épices & Parfums, Allée Centrale',
-          contactPhone: '+227 90 44 55 66',
-          lat: 13.5220,
-          lng: 2.1365
-        },
-        dropoff: {
-          districtId: 'koira_kano',
-          districtName: 'Koira Kano',
-          addressDetail: 'Villa 142, Rue des Ambassades',
-          recipientName: 'Mme Zeinabou',
-          recipientPhone: '+227 92 11 88 77',
-          lat: 13.5450,
-          lng: 2.0965
-        },
-        parcel: {
-          type: 'COLIS_STANDARD',
-          weightKg: 2.4,
-          description: 'Coffret cadeaux de senteurs traditionnelles et tissus',
-          fragile: true
-        },
-        pricing: {
-          baseFareFcfa: 2000,
-          distanceFeeFcfa: 1000,
-          priorityExpressFeeFcfa: 0,
-          totalFcfa: 3000,
-          driverCommissionFcfa: 2100
-        },
-        payment: {
-          method: 'AMANATA',
-          status: 'PAID',
-          reference: 'AMN-TRANSFER-48190',
-          payerPhone: '+227 90 44 55 66',
-          paidAt: '2026-10-29 08:45'
-        },
-        delivery: {
-          status: 'DELIVERED',
-          driverId: 'drv-03',
-          driverName: 'Garba Oumarou',
-          driverPhone: '+227 90 77 66 55',
-          driverVehicle: 'Scooter Express 125',
-          currentCoords: { lat: 13.5450, lng: 2.0965 },
-          progressPercent: 100,
-          estimatedMinutes: 0,
-          startedAt: '2026-10-29 08:35',
-          deliveredAt: '2026-10-29 09:05',
-          deliveryOtp: '8112'
-        },
-        createdAt: '2026-10-29 08:30',
-        securityHash: 'E2E-SHA256-7840WADATA',
-        smsLog: [
-          {
-            id: 'sms-04',
-            recipient: '+227 90 44 55 66',
-            message: 'Faucon Express: Colis FCX-2026-7840 livré avec succès à Koira Kano. Merci !',
-            sentAt: '09:05',
-            status: 'DELIVERED'
-          }
-        ]
-      }
-    ];
+    return [];
   }
 };

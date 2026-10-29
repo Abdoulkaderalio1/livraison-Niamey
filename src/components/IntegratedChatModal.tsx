@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { 
   Send, Phone, MessageSquare, ShieldCheck, X, 
-  ExternalLink, UserCheck, CheckCheck 
+  ExternalLink, UserCheck, CheckCheck, Share2 
 } from 'lucide-react';
 import { ChatMessage, OrderItem } from '../types';
-import { StorageService } from '../services/storageService';
+import { StorageService, formatChatMessageWhatsAppUrl } from '../services/storageService';
 
 interface IntegratedChatModalProps {
   order?: OrderItem | null;
@@ -62,6 +62,30 @@ export const IntegratedChatModal: React.FC<IntegratedChatModalProps> = ({
         setMessages(prev => [...prev, autoReply]);
       }, 1000);
     }
+  };
+
+  const handleSendWhatsApp = (textToSend?: string) => {
+    const text = (textToSend || inputVal).trim();
+    if (!text) return;
+
+    let senderName = 'Client';
+    if (currentUserRole === 'DRIVER') senderName = order?.delivery.driverName || 'Livreur Faucon';
+    if (currentUserRole === 'OWNER_ADMIN') senderName = 'Abdoulkader Alio (Fondateur)';
+
+    // Save in chat
+    const newMsg = StorageService.sendChatMessage({
+      orderId: order?.id || 'gen',
+      orderNumber: orderNum,
+      sender: currentUserRole,
+      senderName,
+      message: text
+    });
+    setMessages(prev => [...prev, newMsg]);
+    setInputVal('');
+
+    // Open WhatsApp directly to Abdoulkader Alio (+227 99 61 40 98)
+    const waUrl = formatChatMessageWhatsAppUrl(text, orderNum, senderName, cleanPhone);
+    window.open(waUrl, '_blank');
   };
 
   const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(
@@ -157,6 +181,16 @@ export const IntegratedChatModal: React.FC<IntegratedChatModalProps> = ({
                 >
                   <p>{msg.message}</p>
                 </div>
+                {isMe && (
+                  <a
+                    href={formatChatMessageWhatsAppUrl(msg.message, orderNum, msg.senderName, cleanPhone)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 text-[10px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-medium transition-colors"
+                  >
+                    <span>💬 Ouvrir sur WhatsApp du patron (+227 99 61 40 98)</span>
+                  </a>
+                )}
               </div>
             );
           })}
@@ -167,10 +201,12 @@ export const IntegratedChatModal: React.FC<IntegratedChatModalProps> = ({
           {quickReplies.map((qr, idx) => (
             <button
               key={idx}
-              onClick={() => handleSend(qr)}
-              className="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] whitespace-nowrap transition-colors"
+              onClick={() => handleSendWhatsApp(qr)}
+              className="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 text-[11px] whitespace-nowrap transition-colors flex items-center gap-1"
+              title="Envoyer directement sur WhatsApp"
             >
-              {qr}
+              <span>💬</span>
+              <span>{qr}</span>
             </button>
           ))}
         </div>
@@ -181,14 +217,24 @@ export const IntegratedChatModal: React.FC<IntegratedChatModalProps> = ({
             type="text"
             value={inputVal}
             onChange={e => setInputVal(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSend()}
+            onKeyDown={e => e.key === 'Enter' && handleSendWhatsApp()}
             placeholder="Écrivez votre message..."
             className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors"
           />
           <button
+            onClick={() => handleSendWhatsApp()}
+            disabled={!inputVal.trim()}
+            className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm shrink-0"
+            title="Envoyer directement sur le WhatsApp de M. Abdoulkader Alio (+227 99 61 40 98)"
+          >
+            <span className="text-sm">💬</span>
+            <span className="hidden sm:inline">WhatsApp</span>
+          </button>
+          <button
             onClick={() => handleSend()}
             disabled={!inputVal.trim()}
-            className="p-2.5 rounded-xl bg-amber-500 text-slate-950 font-bold hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="p-2.5 rounded-xl bg-amber-500 text-slate-950 font-bold hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+            title="Envoyer dans le chat interne"
           >
             <Send className="w-4 h-4" />
           </button>

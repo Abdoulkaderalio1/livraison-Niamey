@@ -106,7 +106,7 @@ export interface Driver {
   phone: string;
   vehicle: 'Moto Boxer 150' | 'Scooter Express 125' | 'Tricycle Cargo' | 'Vélo Cargo';
   licensePlate: string;
-  photoUrl: string;
+  photoUrl?: string;
   rating: number;
   completedDeliveries: number;
   status: 'AVAILABLE' | 'BUSY' | 'OFFLINE';

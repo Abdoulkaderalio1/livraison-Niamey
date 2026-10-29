@@ -9,7 +9,7 @@ import {
   OrderItem, Driver, StockItem, FinancialTransaction, 
   AdminSettings, StockMovement, Language 
 } from '../types';
-import { StorageService } from '../services/storageService';
+import { StorageService, formatOrderWhatsAppUrl } from '../services/storageService';
 import { NiameyInteractiveMap } from './NiameyInteractiveMap';
 import { NIAMEY_DISTRICTS } from '../data/niameyData';
 import { TRANSLATIONS } from '../data/translations';
@@ -22,6 +22,9 @@ interface AdminDashboardProps {
   settings: AdminSettings;
   onOrderUpdated: (order: OrderItem) => void;
   onStockUpdated: (stock: StockItem[]) => void;
+  onDriversUpdated: (drivers: Driver[]) => void;
+  onTransactionsUpdated?: (txs: FinancialTransaction[]) => void;
+  onOrdersUpdated?: (orders: OrderItem[]) => void;
   onSettingsUpdated: (settings: AdminSettings) => void;
   onOpenChat: (order: OrderItem) => void;
   lang: Language;
@@ -35,14 +38,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   settings,
   onOrderUpdated,
   onStockUpdated,
+  onDriversUpdated,
+  onTransactionsUpdated,
+  onOrdersUpdated,
   onSettingsUpdated,
   onOpenChat,
   lang
 }) => {
   const t = TRANSLATIONS[lang] || TRANSLATIONS.fr;
 
-  const [activeTab, setActiveTab] = useState<'OPERATIONS' | 'STOCK' | 'FINANCE' | 'SMS_LOG' | 'SETTINGS'>('OPERATIONS');
+  const [activeTab, setActiveTab] = useState<'OPERATIONS' | 'DRIVERS' | 'STOCK' | 'FINANCE' | 'SMS_LOG' | 'SETTINGS'>('OPERATIONS');
   const [selectedOrder, setSelectedOrder] = useState<OrderItem | null>(orders[0] || null);
+
+  // Driver management state
+  const [showAddDriverModal, setShowAddDriverModal] = useState(false);
+  const [newDriverName, setNewDriverName] = useState('');
+  const [newDriverPhone, setNewDriverPhone] = useState('+227 9');
+  const [newDriverVehicle, setNewDriverVehicle] = useState<Driver['vehicle']>('Moto Boxer 150');
+  const [newDriverPlate, setNewDriverPlate] = useState('RN-');
+  const [newDriverDistrict, setNewDriverDistrict] = useState(NIAMEY_DISTRICTS[0].name);
 
   // Stock edit state
   const [showAddStockModal, setShowAddStockModal] = useState(false);
@@ -58,6 +72,71 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Custom SMS test state
   const [testSmsPhone, setTestSmsPhone] = useState(settings.ownerPhone);
   const [testSmsMessage, setTestSmsMessage] = useState('');
+
+  // Handle Driver Add
+  const handleAddDriver = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDriverName.trim() || !newDriverPhone.trim()) {
+      alert("Veuillez renseigner le nom et le numéro de téléphone du livreur.");
+      return;
+    }
+
+    const created = StorageService.addDriver({
+      name: newDriverName.trim(),
+      phone: newDriverPhone.trim(),
+      vehicle: newDriverVehicle,
+      licensePlate: newDriverPlate.trim() || `RN-${Math.floor(1000 + Math.random() * 9000)}-NE`,
+      rating: 5.0,
+      completedDeliveries: 0,
+      status: 'AVAILABLE',
+      currentDistrict: newDriverDistrict,
+      lat: NIAMEY_DISTRICTS[0].lat,
+      lng: NIAMEY_DISTRICTS[0].lng,
+      batteryLevel: 100,
+      earningsTodayFcfa: 0,
+      isBackgroundChecked: true
+    });
+
+    const updated = StorageService.getDrivers();
+    onDriversUpdated(updated);
+    setShowAddDriverModal(false);
+    setNewDriverName('');
+    setNewDriverPhone('+227 9');
+    alert(`Livreur ${created.name} (${created.phone}) enregistré avec succès.`);
+  };
+
+  // Handle Delete Driver
+  const handleDeleteDriver = (driverId: string, driverName: string) => {
+    if (!confirm(`Supprimer définitivement le livreur ${driverName} ?`)) return;
+    StorageService.deleteDriver(driverId);
+    const updated = StorageService.getDrivers();
+    onDriversUpdated(updated);
+  };
+
+  // Handle Clear All Drivers
+  const handleClearAllDrivers = () => {
+    if (!confirm("Voulez-vous vraiment supprimer TOUS les livreurs enregistrés ? Vous pourrez ensuite saisir manuellement vos propres livreurs avec leurs numéros.")) return;
+    StorageService.clearAllDrivers();
+    onDriversUpdated([]);
+    alert("Tous les livreurs ont été supprimés.");
+  };
+
+  // Handle Clear All Transactions / Receipts
+  const handleClearTransactions = () => {
+    if (!confirm("Voulez-vous supprimer tous les faux reçus et réinitialiser l'historique financier ?")) return;
+    StorageService.clearAllTransactions();
+    if (onTransactionsUpdated) onTransactionsUpdated([]);
+    alert("Historique des reçus réinitialisé à 0 FCFA.");
+  };
+
+  // Handle Clear All Orders
+  const handleClearOrders = () => {
+    if (!confirm("Voulez-vous supprimer toutes les commandes ?")) return;
+    StorageService.clearAllOrders();
+    if (onOrdersUpdated) onOrdersUpdated([]);
+    setSelectedOrder(null);
+    alert("Toutes les commandes ont été supprimées.");
+  };
 
   // Financial Computations
   const totalGrossRevenue = transactions
@@ -284,6 +363,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           Opérations & Carte GPS ({orders.length})
         </button>
         <button
+          onClick={() => setActiveTab('DRIVERS')}
+          className={`px-3.5 py-2 rounded-lg font-semibold whitespace-nowrap transition-colors ${
+            activeTab === 'DRIVERS'
+              ? 'bg-amber-500 text-slate-950 shadow-sm'
+              : 'text-slate-400 hover:text-white bg-slate-900 border border-slate-800'
+          }`}
+        >
+          Mes Livreurs & Numéros ({drivers.length})
+        </button>
+        <button
           onClick={() => setActiveTab('STOCK')}
           className={`px-3.5 py-2 rounded-lg font-semibold whitespace-nowrap transition-colors ${
             activeTab === 'STOCK'
@@ -339,50 +428,102 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {/* Courier Fleet Status Table */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between text-xs">
-                <h4 className="font-bold text-slate-100 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-amber-400" />
-                  Flotte de Livreurs Niamey ({drivers.length})
-                </h4>
-                <span className="text-slate-400 text-[11px]">Tous vérifiés avec casier vierge</span>
+                <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-slate-100 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-amber-400" />
+                    Flotte de Livreurs Niamey ({drivers.length})
+                  </h4>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowAddDriverModal(true)}
+                    className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] flex items-center gap-1 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Ajouter Livreur</span>
+                  </button>
+                  {drivers.length > 0 && (
+                    <button
+                      onClick={handleClearAllDrivers}
+                      className="px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[11px] transition-colors"
+                      title="Supprimer tous les livreurs"
+                    >
+                      Tout vider
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="text-[11px] text-slate-400 border-b border-slate-800">
-                    <tr>
-                      <th className="pb-2">Livreur</th>
-                      <th className="pb-2">Véhicule</th>
-                      <th className="pb-2">Secteur</th>
-                      <th className="pb-2">Statut</th>
-                      <th className="pb-2 text-right">Courses</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {drivers.map(drv => (
-                      <tr key={drv.id} className="hover:bg-slate-800/40">
-                        <td className="py-2 font-medium text-slate-200 flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                          <span>{drv.name}</span>
-                        </td>
-                        <td className="py-2 text-slate-400">{drv.vehicle}</td>
-                        <td className="py-2 text-slate-300">{drv.currentDistrict.split('/')[0]}</td>
-                        <td className="py-2">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${
-                            drv.status === 'AVAILABLE'
-                              ? 'bg-emerald-500/10 text-emerald-400'
-                              : 'bg-amber-500/10 text-amber-400'
-                          }`}>
-                            {drv.status === 'AVAILABLE' ? 'Disponible' : 'En course'}
-                          </span>
-                        </td>
-                        <td className="py-2 text-right font-mono text-slate-200">
-                          {drv.completedDeliveries}
-                        </td>
+              {drivers.length === 0 ? (
+                <div className="p-6 text-center border border-dashed border-slate-800 rounded-lg space-y-2">
+                  <div className="text-amber-400 text-xs font-semibold">
+                    Aucun livreur enregistré pour l'instant
+                  </div>
+                  <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                    C'est à vous d'enregistrer vos livreurs avec leurs numéros de téléphone (+227) pour leur assigner des livraisons.
+                  </p>
+                  <button
+                    onClick={() => setShowAddDriverModal(true)}
+                    className="mt-2 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs inline-flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Ajouter mon premier livreur</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="text-[11px] text-slate-400 border-b border-slate-800">
+                      <tr>
+                        <th className="pb-2">Livreur</th>
+                        <th className="pb-2">Numéro (+227)</th>
+                        <th className="pb-2">Véhicule</th>
+                        <th className="pb-2">Secteur</th>
+                        <th className="pb-2">Statut</th>
+                        <th className="pb-2 text-right">Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {drivers.map(drv => (
+                        <tr key={drv.id} className="hover:bg-slate-800/40">
+                          <td className="py-2 font-medium text-slate-200 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                            <span>{drv.name}</span>
+                          </td>
+                          <td className="py-2">
+                            <a
+                              href={`tel:${drv.phone}`}
+                              className="font-mono text-amber-400 hover:underline font-semibold"
+                            >
+                              {drv.phone}
+                            </a>
+                          </td>
+                          <td className="py-2 text-slate-400">{drv.vehicle}</td>
+                          <td className="py-2 text-slate-300">{drv.currentDistrict.split('/')[0]}</td>
+                          <td className="py-2">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${
+                              drv.status === 'AVAILABLE'
+                                ? 'bg-emerald-500/10 text-emerald-400'
+                                : 'bg-amber-500/10 text-amber-400'
+                            }`}>
+                              {drv.status === 'AVAILABLE' ? 'Disponible' : 'En course'}
+                            </span>
+                          </td>
+                          <td className="py-2 text-right">
+                            <button
+                              onClick={() => handleDeleteDriver(drv.id, drv.name)}
+                              className="px-2 py-0.5 text-rose-400 hover:bg-rose-500/10 rounded transition-colors text-[11px]"
+                              title="Supprimer ce livreur"
+                            >
+                              Supprimer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
 
@@ -394,10 +535,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <Package className="w-4 h-4 text-amber-400" />
                   Flux des Commandes Directes
                 </h4>
-                <span className="text-amber-400 font-mono text-[11px]">{orders.length} enregistrées</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-400 font-mono text-[11px]">{orders.length} en cours</span>
+                  {orders.length > 0 && (
+                    <button
+                      onClick={handleClearOrders}
+                      className="px-2 py-0.5 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] transition-colors"
+                      title="Vider toutes les commandes"
+                    >
+                      Vider
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="space-y-3 max-h-[560px] overflow-y-auto pr-1">
+              {orders.length === 0 ? (
+                <div className="p-8 text-center border border-dashed border-slate-800 rounded-lg space-y-2">
+                  <div className="text-amber-400 text-xs font-semibold">
+                    Aucune commande active
+                  </div>
+                  <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                    Toutes les fausses commandes ont été supprimées. Dès qu'une livraison sera passée sur le site, elle apparaîtra ici avec son numéro généré automatiquement.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[560px] overflow-y-auto pr-1">
                 {orders.map(order => {
                   const isSelected = selectedOrder?.id === order.id;
 
@@ -471,22 +633,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             ))}
                           </div>
 
-                          <div className="flex items-center gap-2 pt-1">
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <a
+                              href={formatOrderWhatsAppUrl(order, '22799614098')}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex-1 py-1.5 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-center font-bold text-[11px] flex items-center justify-center gap-1 transition-colors shadow-sm"
+                              title="Envoyer les détails complets sur WhatsApp"
+                            >
+                              <span>💬</span>
+                              <span>WhatsApp (+227 99 61 40 98)</span>
+                            </a>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onOpenChat(order);
                               }}
-                              className="flex-1 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-400 text-center font-medium flex items-center justify-center gap-1"
+                              className="py-1.5 px-2.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-400 text-center font-medium flex items-center justify-center gap-1 text-[11px]"
                             >
                               <MessageSquare className="w-3.5 h-3.5" />
-                              <span>Messagerie Directe</span>
+                              <span>Chat</span>
                             </button>
                             <a
                               href={`tel:${order.customer.phone}`}
-                              className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-center font-mono"
+                              className="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-center font-mono text-[11px]"
                             >
-                              Appeler Client
+                              Appeler
                             </a>
                           </div>
                         </div>
@@ -495,7 +668,137 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   );
                 })}
               </div>
+              )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Drivers Management */}
+      {activeTab === 'DRIVERS' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-amber-400" />
+                  Gestion des Livreurs & Numéros de Téléphone (+227)
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Ajoutez vos coursiers avec leurs vrais numéros de téléphone. Chaque livreur recevra les alertes SMS automatiques pour chaque course.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowAddDriverModal(true)}
+                  className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Ajouter un Livreur & son Numéro</span>
+                </button>
+                {drivers.length > 0 && (
+                  <button
+                    onClick={handleClearAllDrivers}
+                    className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-semibold text-xs rounded-lg transition-colors border border-rose-500/20"
+                  >
+                    Tout Supprimer
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {drivers.length === 0 ? (
+              <div className="p-10 text-center border-2 border-dashed border-slate-800 rounded-2xl space-y-3">
+                <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-400 mx-auto flex items-center justify-center font-bold text-xl">
+                  🦅
+                </div>
+                <h4 className="text-sm font-bold text-slate-100">
+                  Aucun livreur enregistré
+                </h4>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Tous les faux profils ont été supprimés selon votre demande. Vous pouvez maintenant ajouter vos propres livreurs avec leurs numéros de téléphone réels (+227).
+                </p>
+                <button
+                  onClick={() => setShowAddDriverModal(true)}
+                  className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl transition-all shadow-md inline-flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Ajouter mon premier livreur</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {drivers.map(drv => (
+                  <div
+                    key={drv.id}
+                    className="p-4 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition-all space-y-3"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-xl bg-slate-900 border border-amber-500/40 flex items-center justify-center text-amber-400 font-extrabold text-xs shrink-0">
+                          {drv.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'LR'}
+                        </div>
+                        <div>
+                          <div className="font-bold text-slate-100 text-xs">{drv.name}</div>
+                          <a
+                            href={`tel:${drv.phone}`}
+                            className="font-mono text-amber-400 font-semibold text-xs hover:underline block"
+                          >
+                            📞 {drv.phone}
+                          </a>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteDriver(drv.id, drv.name)}
+                        className="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors text-xs"
+                        title="Supprimer ce livreur"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="text-[11px] text-slate-400 space-y-1 border-t border-slate-800/80 pt-2">
+                      <div className="flex justify-between">
+                        <span>Véhicule</span>
+                        <span className="text-slate-200">{drv.vehicle}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Plaque</span>
+                        <span className="font-mono text-slate-300">{drv.licensePlate}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Secteur Niamey</span>
+                        <span className="text-slate-300">{drv.currentDistrict.split('/')[0]}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Disponibilité</span>
+                        <span className={`font-mono ${drv.status === 'AVAILABLE' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                          {drv.status === 'AVAILABLE' ? 'Disponible' : 'En course'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-1 flex items-center gap-2">
+                      <a
+                        href={`tel:${drv.phone}`}
+                        className="flex-1 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold text-center transition-colors"
+                      >
+                        Appeler
+                      </a>
+                      <a
+                        href={`https://wa.me/${drv.phone.replace(/[^0-9]/g, '')}?text=Salam%20${encodeURIComponent(drv.name)},%20message%20Faucon%20Express.`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold text-center transition-colors"
+                      >
+                        WhatsApp
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -638,60 +941,84 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </p>
               </div>
 
-              <button
-                onClick={handleExportCsv}
-                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-lg flex items-center gap-1.5 transition-colors"
-              >
-                <Download className="w-4 h-4 text-amber-400" />
-                <span>Exporter Grand Livre (CSV)</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExportCsv}
+                  disabled={transactions.length === 0}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 font-semibold text-xs rounded-lg flex items-center gap-1.5 transition-colors"
+                >
+                  <Download className="w-4 h-4 text-amber-400" />
+                  <span>Exporter Grand Livre (CSV)</span>
+                </button>
+                {transactions.length > 0 && (
+                  <button
+                    onClick={handleClearTransactions}
+                    className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-medium rounded-lg transition-colors border border-rose-500/20"
+                  >
+                    Vider les reçus
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* Transactions Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="text-[11px] text-slate-400 border-b border-slate-800">
-                  <tr>
-                    <th className="pb-3">Réf Transaction</th>
-                    <th className="pb-3">N° Course</th>
-                    <th className="pb-3">Type</th>
-                    <th className="pb-3">Moyen de Paiement</th>
-                    <th className="pb-3 text-right">Montant FCFA</th>
-                    <th className="pb-3">Date & Heure</th>
-                    <th className="pb-3 text-center">Statut</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {transactions.map(tx => (
-                    <tr key={tx.id} className="hover:bg-slate-800/30">
-                      <td className="py-2.5 font-mono text-amber-400 font-medium">{tx.reference}</td>
-                      <td className="py-2.5 font-mono text-slate-200">{tx.orderNumber}</td>
-                      <td className="py-2.5 text-slate-300">
-                        {tx.type === 'PAYMENT_RECEIVED' ? 'Encaissement Client' : 'Versement Livreur'}
-                      </td>
-                      <td className="py-2.5">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${
-                          tx.method === 'MY_NITA' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                          tx.method === 'AMANATA' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                          'bg-sky-500/10 text-sky-400 border border-sky-500/20'
-                        }`}>
-                          {tx.method}
-                        </span>
-                      </td>
-                      <td className="py-2.5 text-right font-mono font-bold text-slate-100">
-                        {tx.amountFcfa.toLocaleString('fr-FR')} FCFA
-                      </td>
-                      <td className="py-2.5 font-mono text-slate-400 text-[11px]">{tx.timestamp}</td>
-                      <td className="py-2.5 text-center">
-                        <span className="text-emerald-400 text-[11px] font-semibold">
-                          ✓ Confirmé
-                        </span>
-                      </td>
+            {transactions.length === 0 ? (
+              <div className="p-10 text-center border-2 border-dashed border-slate-800 rounded-2xl space-y-2">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 mx-auto flex items-center justify-center font-bold">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <div className="text-xs font-bold text-slate-200">
+                  Aucun reçu ni transaction pour le moment
+                </div>
+                <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                  Tous les faux reçus ont été supprimés. Les transactions et reçus réels apparaîtront automatiquement dès qu'une course sera confirmée et réglée par MY Nita, Amanata ou espèces.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead className="text-[11px] text-slate-400 border-b border-slate-800">
+                    <tr>
+                      <th className="pb-3">Réf Transaction</th>
+                      <th className="pb-3">N° Course</th>
+                      <th className="pb-3">Type</th>
+                      <th className="pb-3">Moyen de Paiement</th>
+                      <th className="pb-3 text-right">Montant FCFA</th>
+                      <th className="pb-3">Date & Heure</th>
+                      <th className="pb-3 text-center">Statut</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {transactions.map(tx => (
+                      <tr key={tx.id} className="hover:bg-slate-800/30">
+                        <td className="py-2.5 font-mono text-amber-400 font-medium">{tx.reference}</td>
+                        <td className="py-2.5 font-mono text-slate-200">{tx.orderNumber}</td>
+                        <td className="py-2.5 text-slate-300">
+                          {tx.type === 'PAYMENT_RECEIVED' ? 'Encaissement Client' : 'Versement Livreur'}
+                        </td>
+                        <td className="py-2.5">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${
+                            tx.method === 'MY_NITA' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                            tx.method === 'AMANATA' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                            'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                          }`}>
+                            {tx.method}
+                          </span>
+                        </td>
+                        <td className="py-2.5 text-right font-mono font-bold text-slate-100">
+                          {tx.amountFcfa.toLocaleString('fr-FR')} FCFA
+                        </td>
+                        <td className="py-2.5 font-mono text-slate-400 text-[11px]">{tx.timestamp}</td>
+                        <td className="py-2.5 text-center">
+                          <span className="text-emerald-400 text-[11px] font-semibold">
+                            ✓ Confirmé
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -926,6 +1253,106 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 className="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-lg text-xs"
               >
                 Enregistrer l'Article
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Add Driver Modal */}
+      {showAddDriverModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <form onSubmit={handleAddDriver} className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-slate-100 text-sm flex items-center gap-2">
+                <Users className="w-4 h-4 text-amber-400" />
+                <span>Ajouter un Livreur & son Numéro</span>
+              </h4>
+              <button type="button" onClick={() => setShowAddDriverModal(false)} className="text-slate-400 hover:text-white">✕</button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Saisissez les coordonnées de votre livreur. Le numéro sera utilisé pour l'envoi des SMS de commande et la communication directe.
+            </p>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">Nom complet du livreur *</label>
+                <input
+                  type="text"
+                  required
+                  value={newDriverName}
+                  onChange={e => setNewDriverName(e.target.value)}
+                  placeholder="Ex: Moussa Abdou"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Numéro de téléphone (+227) *</label>
+                <input
+                  type="tel"
+                  required
+                  value={newDriverPhone}
+                  onChange={e => setNewDriverPhone(e.target.value)}
+                  placeholder="+227 99 00 00 00"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 font-mono text-amber-400 font-bold focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Véhicule</label>
+                  <select
+                    value={newDriverVehicle}
+                    onChange={e => setNewDriverVehicle(e.target.value as any)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-slate-100 focus:outline-none"
+                  >
+                    <option value="Moto Boxer 150">Moto Boxer 150</option>
+                    <option value="Scooter Express 125">Scooter Express 125</option>
+                    <option value="Tricycle Cargo">Tricycle Cargo</option>
+                    <option value="Vélo Cargo">Vélo Cargo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Plaque d'immatriculation</label>
+                  <input
+                    type="text"
+                    value={newDriverPlate}
+                    onChange={e => setNewDriverPlate(e.target.value)}
+                    placeholder="RN-1234-NE"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 font-mono focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Quartier d'attache à Niamey</label>
+                <select
+                  value={newDriverDistrict}
+                  onChange={e => setNewDriverDistrict(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-slate-100 focus:outline-none"
+                >
+                  {NIAMEY_DISTRICTS.map(d => (
+                    <option key={d.id} value={d.name}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowAddDriverModal(false)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-lg text-xs"
+              >
+                Enregistrer le Livreur
               </button>
             </div>
           </form>

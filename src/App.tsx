@@ -9,7 +9,7 @@ import {
   MapPin, Clock, ArrowRight, Smartphone, 
   UserCheck, Shield, Sparkles, Navigation 
 } from 'lucide-react';
-import { StorageService } from './services/storageService';
+import { StorageService, formatOrderWhatsAppUrl, playNotificationChime } from './services/storageService';
 import { 
   OrderItem, Driver, StockItem, FinancialTransaction, 
   AdminSettings, Language 
@@ -32,16 +32,64 @@ export default function App() {
   const [transactions, setTransactions] = useState<FinancialTransaction[]>(() => StorageService.getTransactions());
   const [settings, setSettings] = useState<AdminSettings>(() => StorageService.getSettings());
 
+  // Real-time Order Alert Toast
+  const [liveAlertOrder, setLiveAlertOrder] = useState<OrderItem | null>(null);
+
   // Chat Modal State
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatOrder, setChatOrder] = useState<OrderItem | null>(null);
 
   const t = TRANSLATIONS[lang] || TRANSLATIONS.fr;
 
+  // Real-time synchronization across browser tabs and components
+  useEffect(() => {
+    const handleSync = () => {
+      setOrders(StorageService.getOrders());
+      setDrivers(StorageService.getDrivers());
+      setStock(StorageService.getStock());
+      setTransactions(StorageService.getTransactions());
+    };
+
+    const handleOrderEvent = (e: Event) => {
+      handleSync();
+      const custom = e as CustomEvent<{ order: OrderItem; type: string }>;
+      if (custom.detail?.type === 'CREATED') {
+        playNotificationChime();
+        setLiveAlertOrder(custom.detail.order);
+      }
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('faucon_order_event', handleOrderEvent);
+
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        bc = new BroadcastChannel('faucon_express_events');
+        bc.onmessage = (msg) => {
+          handleSync();
+          if (msg.data?.type === 'CREATED') {
+            playNotificationChime();
+            setLiveAlertOrder(msg.data.order);
+          }
+        };
+      } catch {
+        // ignore
+      }
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('faucon_order_event', handleOrderEvent);
+      if (bc) bc.close();
+    };
+  }, []);
+
   const handleOrderCreated = (newOrder: OrderItem) => {
     setOrders(StorageService.getOrders());
     setStock(StorageService.getStock());
     setTransactions(StorageService.getTransactions());
+    setLiveAlertOrder(newOrder);
   };
 
   const handleOrderUpdated = (updatedOrder: OrderItem) => {
@@ -111,6 +159,47 @@ export default function App() {
         </div>
       </div>
 
+      {/* Live Order Received Notification Banner for Admin / Owner */}
+      {liveAlertOrder && (
+        <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-emerald-950 border-b border-emerald-500/50 px-4 py-2.5 text-xs text-white flex flex-wrap items-center justify-between gap-3 animate-in slide-in-from-top duration-200 sticky top-0 z-50">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+            <span className="font-extrabold text-emerald-300">NOUVELLE COMMANDE REÇUE :</span>
+            <span className="font-mono text-amber-400 font-bold">{liveAlertOrder.orderNumber}</span>
+            <span className="hidden sm:inline text-slate-300">
+              · {liveAlertOrder.pickup.districtName} ➔ {liveAlertOrder.dropoff.districtName} ({liveAlertOrder.pricing.totalFcfa.toLocaleString()} FCFA)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <a
+              href={formatOrderWhatsAppUrl(liveAlertOrder, '22799614098')}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs rounded-lg flex items-center gap-1 shadow-sm transition-colors"
+            >
+              <span>Transmettre sur WhatsApp (+227 99 61 40 98)</span>
+            </a>
+            <button
+              onClick={() => {
+                setActiveView('ADMIN');
+                setLiveAlertOrder(null);
+              }}
+              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition-colors"
+            >
+              Gérer dans Dashboard
+            </button>
+            <button
+              onClick={() => setLiveAlertOrder(null)}
+              className="text-slate-400 hover:text-white px-2 py-1 text-sm font-bold"
+              title="Fermer notification"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Bar Contract (Zone 1: Brand, Zone 2: Nav Links, Zone 3: 1 Primary CTA) */}
       <header className="flex items-center justify-between gap-8 px-6 py-4 border-b border-slate-800 bg-slate-950/95 sticky top-0 z-40 backdrop-blur-md">
         {/* Zone 1: Single text wordmark */}
@@ -158,14 +247,25 @@ export default function App() {
           </button>
         </nav>
 
-        {/* Zone 3: 1 Primary Action */}
-        <div className="flex items-center gap-2.5 shrink-0">
+        {/* Zone 3: Action CTAs */}
+        <div className="flex items-center gap-2 shrink-0">
+          <a
+            href="https://wa.me/22799614098?text=Bonjour%20M.%20Abdoulkader,%20je%20vous%20contacte%20concernant%20Faucon%20Express."
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3 py-2 text-xs font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition-colors whitespace-nowrap shrink-0 shadow-sm flex items-center gap-1.5"
+            title="WhatsApp direct avec le propriétaire"
+          >
+            <span>💬</span>
+            <span className="hidden sm:inline">WhatsApp</span>
+            <span className="font-mono text-[11px]">+227 99 61 40 98</span>
+          </a>
           <button
             onClick={() => handleOpenChat()}
-            className="px-3.5 py-2 text-xs font-bold text-slate-950 bg-amber-500 rounded-lg hover:bg-amber-400 transition-colors whitespace-nowrap shrink-0 shadow-sm flex items-center gap-1.5"
+            className="px-3 py-2 text-xs font-bold text-slate-950 bg-amber-500 rounded-lg hover:bg-amber-400 transition-colors whitespace-nowrap shrink-0 shadow-sm flex items-center gap-1.5"
           >
             <MessageSquare className="w-3.5 h-3.5" />
-            <span>Chat +227 99614098</span>
+            <span className="hidden md:inline">Chat</span>
           </button>
         </div>
       </header>
@@ -207,24 +307,53 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right Hero Image Card */}
+            {/* Right Hero Tactical Status Card (Zero Photos, 100% Vector & Telemetry) */}
             <div className="lg:col-span-5 relative">
-              <div className="relative rounded-2xl overflow-hidden border border-slate-700/80 shadow-2xl group">
-                <img
-                  src="/src/assets/images/faucon_express_hero_1793266544989.jpg"
-                  alt="Livreur Faucon Express Niamey sur le Pont Kennedy"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-64 md:h-80 object-cover transform group-hover:scale-105 transition-transform duration-500"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
-                <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-xs text-slate-200">
-                  <div>
-                    <span className="font-bold text-amber-400">Pont Kennedy · Niamey</span>
-                    <p className="text-[11px] text-slate-300">Livreurs en patrouille continue 7j/7</p>
+              <div className="relative rounded-2xl p-6 bg-slate-900 border border-slate-800 shadow-2xl space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-lg">
+                      🦅
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-100 text-sm">Poste Central Niamey</h3>
+                      <p className="text-[11px] text-slate-400">Plateau · Ligne +227 99 61 40 98</p>
+                    </div>
                   </div>
-                  <span className="px-2 py-1 bg-slate-950/80 backdrop-blur rounded font-mono text-[10px] text-emerald-400 border border-slate-800">
-                    GPS En Direct
+                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    En Service 24/7
                   </span>
+                </div>
+
+                {/* Key Dispatch Metrics */}
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="text-[11px] text-slate-400">Prise en charge</div>
+                    <div className="text-base font-extrabold text-amber-400 font-mono mt-0.5">~10-15 min</div>
+                    <div className="text-[10px] text-slate-500">Motos disponibles</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="text-[11px] text-slate-400">Pont Kennedy</div>
+                    <div className="text-base font-extrabold text-emerald-400 font-mono mt-0.5">Fluide</div>
+                    <div className="text-[10px] text-slate-500">Liaison Rive Droite</div>
+                  </div>
+                </div>
+
+                {/* Security and direct line strip */}
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 text-[11px] space-y-1.5">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Paiements certifiés</span>
+                    <span className="font-semibold text-amber-400">MY Nita · Amanata · Cash</span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span>Confidentialité</span>
+                    <span className="text-emerald-400 font-mono">100% Chiffré & Sans Pub</span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span>Superviseur</span>
+                    <span className="text-slate-200 font-medium">Abdoulkader Alio</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -291,8 +420,10 @@ export default function App() {
         {activeView === 'DRIVER' && (
           <DriverApp
             orders={orders}
+            drivers={drivers}
             onOrderUpdated={handleOrderUpdated}
             onOpenChat={handleOpenChat}
+            onDriversUpdated={setDrivers}
             lang={lang}
           />
         )}
@@ -306,6 +437,9 @@ export default function App() {
             settings={settings}
             onOrderUpdated={handleOrderUpdated}
             onStockUpdated={setStock}
+            onDriversUpdated={setDrivers}
+            onTransactionsUpdated={setTransactions}
+            onOrdersUpdated={setOrders}
             onSettingsUpdated={setSettings}
             onOpenChat={handleOpenChat}
             lang={lang}

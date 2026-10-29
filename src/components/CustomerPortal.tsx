@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { NIAMEY_DISTRICTS } from '../data/niameyData';
 import { OrderItem, PaymentMethod, Language } from '../types';
-import { StorageService, generateOrderNumber } from '../services/storageService';
+import { StorageService, generateOrderNumber, formatOrderWhatsAppUrl } from '../services/storageService';
 import { NiameyInteractiveMap } from './NiameyInteractiveMap';
 import { TRANSLATIONS } from '../data/translations';
 
@@ -26,6 +26,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
 }) => {
   const t = TRANSLATIONS[lang] || TRANSLATIONS.fr;
   const [activeTab, setActiveTab] = useState<'NEW_ORDER' | 'TRACKING'>('NEW_ORDER');
+  const [justCreatedOrder, setJustCreatedOrder] = useState<OrderItem | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<string>(
     orders.length > 0 ? orders[0].id : ''
   );
@@ -147,20 +148,21 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
       }
     });
 
+    setJustCreatedOrder(newOrder);
     onOrderCreated(newOrder);
     setSelectedOrderId(newOrder.id);
     setActiveTab('TRACKING');
 
-    // Notify user
-    alert(
-      `✅ Commande ${orderNum} créée avec succès !\n` +
-      `Trajet: ${pickupDistrict.name.split('/')[0]} ➔ ${dropoffDistrict.name.split('/')[0]}\n` +
-      `Montant: ${totalAmountFcfa} FCFA (${paymentMethod})\n` +
-      `Un SMS automatique a été envoyé au propriétaire (+227 99 61 40 98) et à votre numéro.`
-    );
+    // Automatically open WhatsApp with full order details pre-filled for Abdoulkader Alio
+    try {
+      const waUrl = formatOrderWhatsAppUrl(newOrder, '22799614098');
+      window.open(waUrl, '_blank');
+    } catch {
+      // Fallback modal is displayed
+    }
   };
 
-  const currentOrder = orders.find(o => o.id === selectedOrderId) || orders[0];
+  const currentOrder = orders.find(o => o.id === selectedOrderId) || (justCreatedOrder?.id === selectedOrderId ? justCreatedOrder : null) || orders[0];
 
   return (
     <div className="space-y-6">
@@ -633,192 +635,308 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
             </div>
           )}
 
-          {currentOrder && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Map & Live Visualizer */}
-              <div className="lg:col-span-8 space-y-4">
-                <NiameyInteractiveMap activeOrder={currentOrder} mode="TRACKING" />
-
-                {/* Real-time Step Timeline */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-slate-100">
-                      Progression de la livraison · {currentOrder.orderNumber}
-                    </h3>
-                    <span className="text-xs font-mono text-amber-400 font-semibold">
-                      OTP Client : {currentOrder.delivery.deliveryOtp}
-                    </span>
+          {currentOrder ? (
+            <div className="space-y-4">
+              {/* WhatsApp Direct Dispatch & Alert Banner */}
+              <div className="bg-emerald-950/60 border border-emerald-500/30 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-base shrink-0">
+                    💬
                   </div>
-
-                  {/* 5 Milestone Steps */}
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-center text-xs">
-                    {[
-                      { status: 'CREATED', label: '1. Reçue', done: true },
-                      { 
-                        status: 'ASSIGNED', 
-                        label: '2. Livreur', 
-                        done: ['ASSIGNED', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED', 'DELIVERED'].includes(currentOrder.delivery.status) 
-                      },
-                      { 
-                        status: 'PICKED_UP', 
-                        label: '3. Collecté', 
-                        done: ['PICKED_UP', 'IN_TRANSIT', 'ARRIVED', 'DELIVERED'].includes(currentOrder.delivery.status) 
-                      },
-                      { 
-                        status: 'IN_TRANSIT', 
-                        label: '4. En Vol', 
-                        done: ['IN_TRANSIT', 'ARRIVED', 'DELIVERED'].includes(currentOrder.delivery.status) 
-                      },
-                      { 
-                        status: 'DELIVERED', 
-                        label: '5. Livré', 
-                        done: currentOrder.delivery.status === 'DELIVERED' 
-                      }
-                    ].map((step, idx) => (
-                      <div
-                        key={idx}
-                        className={`p-2 rounded-lg border transition-all ${
-                          step.done
-                            ? 'bg-amber-500/10 border-amber-500/40 text-amber-400 font-medium'
-                            : 'bg-slate-950 border-slate-800 text-slate-400'
-                        }`}
-                      >
-                        <div className="text-[11px] mb-1">{step.label}</div>
-                        <div className="text-[10px] font-mono text-slate-400">
-                          {step.done ? 'Validé' : 'En attente'}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* SMS transmission audit log */}
-                  <div className="border-t border-slate-800 pt-3 space-y-2">
-                    <div className="flex items-center justify-between text-xs text-slate-400">
-                      <span className="font-semibold text-slate-300">Journal SMS & Notifications Push en direct :</span>
-                      <span className="font-mono text-[10px] text-emerald-400">Passerelle Télécom Niger Active</span>
+                  <div>
+                    <div className="font-bold text-emerald-200">
+                      Transmission Directe au Propriétaire : Abdoulkader Alio (+227 99 61 40 98)
                     </div>
-                    <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                      {currentOrder.smsLog.map(sms => (
-                        <div key={sms.id} className="p-2 rounded bg-slate-950 border border-slate-800 text-[11px] flex items-start justify-between gap-3">
-                          <div className="space-y-0.5">
-                            <span className="text-amber-400 font-mono">{sms.recipient}</span>
-                            <p className="text-slate-300">{sms.message}</p>
+                    <div className="text-[11px] text-emerald-300/80">
+                      Envoyez ou suivez les détails complets de cette commande {currentOrder.orderNumber} sur WhatsApp
+                    </div>
+                  </div>
+                </div>
+                <a
+                  href={formatOrderWhatsAppUrl(currentOrder, '22799614098')}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <span>Transmettre sur WhatsApp</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Map & Live Visualizer */}
+                <div className="lg:col-span-8 space-y-4">
+                  <NiameyInteractiveMap activeOrder={currentOrder} mode="TRACKING" />
+
+                  {/* Real-time Step Timeline */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-slate-100">
+                        Progression de la livraison · {currentOrder.orderNumber}
+                      </h3>
+                      <span className="text-xs font-mono text-amber-400 font-semibold">
+                        OTP Client : {currentOrder.delivery.deliveryOtp}
+                      </span>
+                    </div>
+
+                    {/* 5 Milestone Steps */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-center text-xs">
+                      {[
+                        { status: 'CREATED', label: '1. Reçue', done: true },
+                        { 
+                          status: 'ASSIGNED', 
+                          label: '2. Livreur', 
+                          done: ['ASSIGNED', 'PICKED_UP', 'IN_TRANSIT', 'ARRIVED', 'DELIVERED'].includes(currentOrder.delivery.status) 
+                        },
+                        { 
+                          status: 'PICKED_UP', 
+                          label: '3. Collecté', 
+                          done: ['PICKED_UP', 'IN_TRANSIT', 'ARRIVED', 'DELIVERED'].includes(currentOrder.delivery.status) 
+                        },
+                        { 
+                          status: 'IN_TRANSIT', 
+                          label: '4. En Vol', 
+                          done: ['IN_TRANSIT', 'ARRIVED', 'DELIVERED'].includes(currentOrder.delivery.status) 
+                        },
+                        { 
+                          status: 'DELIVERED', 
+                          label: '5. Livré', 
+                          done: currentOrder.delivery.status === 'DELIVERED' 
+                        }
+                      ].map((step, idx) => (
+                        <div
+                          key={idx}
+                          className={`p-2 rounded-lg border transition-all ${
+                            step.done
+                              ? 'bg-amber-500/10 border-amber-500/40 text-amber-400 font-medium'
+                              : 'bg-slate-950 border-slate-800 text-slate-400'
+                          }`}
+                        >
+                          <div className="text-[11px] mb-1">{step.label}</div>
+                          <div className="text-[10px] font-mono text-slate-400">
+                            {step.done ? 'Validé' : 'En attente'}
                           </div>
-                          <span className="text-[10px] font-mono text-slate-400 shrink-0">{sms.sentAt}</span>
                         </div>
                       ))}
                     </div>
-                  </div>
-                </div>
-              </div>
 
-              {/* Order Info & Direct Contacts */}
-              <div className="lg:col-span-4 space-y-4">
-                {/* Courier Card */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src="/src/assets/images/faucon_express_courier_1793266544653.jpg"
-                      alt="Livreur Faucon Express"
-                      referrerPolicy="no-referrer"
-                      className="w-12 h-12 rounded-xl object-cover border border-amber-500/40"
-                    />
-                    <div>
-                      <div className="text-xs text-slate-400">Livreur Assigné</div>
-                      <div className="font-bold text-slate-100 text-sm">
-                        {currentOrder.delivery.driverName || 'Moussa Ibrahim'}
+                    {/* SMS transmission audit log */}
+                    <div className="border-t border-slate-800 pt-3 space-y-2">
+                      <div className="flex items-center justify-between text-xs text-slate-400">
+                        <span className="font-semibold text-slate-300">Journal SMS & Notifications Push en direct :</span>
+                        <span className="font-mono text-[10px] text-emerald-400">Passerelle Télécom Niger Active</span>
                       </div>
-                      <div className="text-xs text-amber-400 font-mono">
-                        {currentOrder.delivery.driverVehicle || 'Moto Boxer 150'} · ★ 4.95
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                        {currentOrder.smsLog.map(sms => (
+                          <div key={sms.id} className="p-2 rounded bg-slate-950 border border-slate-800 text-[11px] flex items-start justify-between gap-3">
+                            <div className="space-y-0.5">
+                              <span className="text-amber-400 font-mono">{sms.recipient}</span>
+                              <p className="text-slate-300">{sms.message}</p>
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-400 shrink-0">{sms.sentAt}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
-
-                  <div className="pt-2 flex items-center gap-2">
-                    <a
-                      href={`tel:${currentOrder.delivery.driverPhone || '+22796451280'}`}
-                      className="flex-1 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                    >
-                      <Phone className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Appeler livreur</span>
-                    </a>
-                    <button
-                      onClick={() => onOpenChat(currentOrder)}
-                      className="flex-1 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>Chat Direct</span>
-                    </button>
-                  </div>
                 </div>
 
-                {/* Details Breakdown */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 text-xs">
-                  <h4 className="font-bold text-slate-100 border-b border-slate-800 pb-2">
-                    Fiche Commande Sécurisée
-                  </h4>
+                {/* Order Info & Direct Contacts */}
+                <div className="lg:col-span-4 space-y-4">
+                  {/* Courier Card */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-lg shrink-0">
+                        🦅
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-400">Livreur Assigné</div>
+                        <div className="font-bold text-slate-100 text-sm">
+                          {currentOrder.delivery.driverName || "En cours d'attribution"}
+                        </div>
+                        <div className="text-xs text-amber-400 font-mono">
+                          {currentOrder.delivery.driverVehicle || 'Flotte Faucon Express'}
+                        </div>
+                      </div>
+                    </div>
 
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">N° Commande</span>
-                      <span className="font-mono text-amber-400 font-bold">{currentOrder.orderNumber}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Code Token E2E</span>
-                      <span className="font-mono text-slate-300 text-[10px]">{currentOrder.securityHash}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Mode de paiement</span>
-                      <span className="font-medium text-emerald-400">
-                        {currentOrder.payment.method} ({currentOrder.payment.status})
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Montant total</span>
-                      <span className="font-mono font-bold text-slate-100">
-                        {currentOrder.pricing.totalFcfa} FCFA
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Ramassage</span>
-                      <span className="text-slate-200 text-right">{currentOrder.pickup.districtName}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Livraison</span>
-                      <span className="text-slate-200 text-right">{currentOrder.dropoff.districtName}</span>
+                    <div className="pt-2 flex items-center gap-2">
+                      <a
+                        href={`tel:${currentOrder.delivery.driverPhone || '+22799614098'}`}
+                        className="flex-1 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                      >
+                        <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{currentOrder.delivery.driverPhone ? 'Appeler livreur' : 'Appeler Dispatch'}</span>
+                      </a>
+                      <button
+                        onClick={() => onOpenChat(currentOrder)}
+                        className="flex-1 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Chat Direct</span>
+                      </button>
                     </div>
                   </div>
-                </div>
 
-                {/* Contact Owner Directly */}
-                <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-4 text-xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-200">Abdoulkader Alio (Propriétaire)</span>
-                    <span className="text-emerald-400 text-[10px]">Ligne prioritaire</span>
+                  {/* Details Breakdown */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3 text-xs">
+                    <h4 className="font-bold text-slate-100 border-b border-slate-800 pb-2">
+                      Fiche Commande Sécurisée
+                    </h4>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">N° Commande</span>
+                        <span className="font-mono text-amber-400 font-bold">{currentOrder.orderNumber}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Code Token E2E</span>
+                        <span className="font-mono text-slate-300 text-[10px]">{currentOrder.securityHash}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Mode de paiement</span>
+                        <span className="font-medium text-emerald-400">
+                          {currentOrder.payment.method} ({currentOrder.payment.status})
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Montant total</span>
+                        <span className="font-mono font-bold text-slate-100">
+                          {currentOrder.pricing.totalFcfa} FCFA
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Ramassage</span>
+                        <span className="text-slate-200 text-right">{currentOrder.pickup.districtName}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Livraison</span>
+                        <span className="text-slate-200 text-right">{currentOrder.dropoff.districtName}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-slate-400 text-[11px]">
-                    Besoin d'une instruction spéciale ou d'un suivi sur mesure ? Contactez directement la direction au +227 99 61 40 98.
-                  </div>
-                  <div className="pt-1 flex items-center gap-2">
-                    <a
-                      href="https://wa.me/22799614098?text=Bonjour%20M.%20Abdoulkader,%20je%20vous%20contacte%20concernant%20Faucon%20Express."
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-center transition-colors"
-                    >
-                      WhatsApp Direct
-                    </a>
-                    <a
-                      href="tel:+22799614098"
-                      className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono transition-colors"
-                    >
-                      +227 99 61 40 98
-                    </a>
+
+                  {/* Contact Owner Directly & WhatsApp */}
+                  <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-4 text-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-200">Abdoulkader Alio (Propriétaire)</span>
+                      <span className="text-emerald-400 text-[10px]">Ligne prioritaire</span>
+                    </div>
+                    <div className="text-slate-400 text-[11px]">
+                      Besoin d'une instruction spéciale ou d'un suivi sur mesure ? Contactez directement la direction au +227 99 61 40 98 sur WhatsApp.
+                    </div>
+                    <div className="pt-1 flex items-center gap-2">
+                      <a
+                        href={formatOrderWhatsAppUrl(currentOrder, '22799614098')}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-center transition-colors flex items-center justify-center gap-1"
+                      >
+                        <span>WhatsApp Direct</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                      <a
+                        href="tel:+22799614098"
+                        className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono transition-colors"
+                      >
+                        +227 99 61 40 98
+                      </a>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
+          ) : (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-4 max-w-lg mx-auto">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-3xl mx-auto">
+                📦
+              </div>
+              <h3 className="text-base font-bold text-white">Aucune commande active à suivre</h3>
+              <p className="text-xs text-slate-400">
+                Remplissez le formulaire pour expédier un colis ou contactez directement M. Abdoulkader Alio sur WhatsApp au +227 99 61 40 98.
+              </p>
+              <div className="pt-2 flex items-center justify-center gap-3">
+                <button
+                  onClick={() => setActiveTab('NEW_ORDER')}
+                  className="px-4 py-2 bg-amber-500 text-slate-950 font-bold text-xs rounded-xl hover:bg-amber-400 transition-colors"
+                >
+                  Nouvelle Livraison
+                </button>
+                <a
+                  href="https://wa.me/22799614098?text=Bonjour%20M.%20Abdoulkader,%20je%20souhaite%20commander%20une%20course%20sur%20Faucon%20Express."
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 bg-emerald-600 text-white font-bold text-xs rounded-xl hover:bg-emerald-500 flex items-center gap-1.5 transition-colors"
+                >
+                  <span>WhatsApp Direct</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
           )}
+        </div>
+      )}
+
+      {/* Just Created Order WhatsApp Transmission Modal */}
+      {justCreatedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-lg bg-slate-900 border border-emerald-500/40 rounded-2xl p-6 shadow-2xl space-y-5 text-center">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto text-3xl">
+              💬
+            </div>
+            <div>
+              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                Commande {justCreatedOrder.orderNumber} enregistrée
+              </span>
+              <h3 className="text-xl font-extrabold text-white mt-2">
+                Envoyer la commande sur le WhatsApp du Propriétaire
+              </h3>
+              <p className="text-xs text-slate-300 mt-1 max-w-md mx-auto">
+                M. Abdoulkader Alio (<strong className="text-amber-400">+227 99 61 40 98</strong>) recevra instantanément tous les détails de votre course sur son WhatsApp.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-left text-xs space-y-1.5 font-mono text-slate-300">
+              <div className="flex justify-between border-b border-slate-800 pb-1">
+                <span>N° Course :</span>
+                <span className="text-amber-400 font-bold">{justCreatedOrder.orderNumber}</span>
+              </div>
+              <div>📍 De : <span className="text-white">{justCreatedOrder.pickup.districtName}</span></div>
+              <div>🎯 Vers : <span className="text-white">{justCreatedOrder.dropoff.districtName}</span> ({justCreatedOrder.dropoff.recipientPhone})</div>
+              <div>💰 Montant : <span className="text-emerald-400 font-bold">{justCreatedOrder.pricing.totalFcfa.toLocaleString()} FCFA</span> ({justCreatedOrder.payment.method})</div>
+              <div>🔐 OTP Remise : <span className="text-amber-400 font-bold">{justCreatedOrder.delivery.deliveryOtp}</span></div>
+            </div>
+
+            <div className="space-y-2">
+              <a
+                href={formatOrderWhatsAppUrl(justCreatedOrder, '22799614098')}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setJustCreatedOrder(null)}
+                className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+              >
+                <span className="text-lg">💬</span>
+                <span>Transmettre sur WhatsApp (+227 99 61 40 98)</span>
+                <ExternalLink className="w-4 h-4" />
+              </a>
+
+              <div className="flex items-center gap-2">
+                <a
+                  href={`tel:+22799614098`}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Appeler (+227 99 61 40 98)</span>
+                </a>
+                <button
+                  onClick={() => setJustCreatedOrder(null)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors"
+                >
+                  Voir Suivi en direct
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

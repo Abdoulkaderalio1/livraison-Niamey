@@ -115,76 +115,7 @@ export const NIAMEY_DISTRICTS: NiameyDistrict[] = [
   }
 ];
 
-export const INITIAL_DRIVERS: Driver[] = [
-  {
-    id: 'drv-01',
-    name: 'Moussa Ibrahim',
-    phone: '+227 96 45 12 80',
-    vehicle: 'Moto Boxer 150',
-    licensePlate: 'RN-8492-NE',
-    photoUrl: '/src/assets/images/faucon_express_courier_1793266544653.jpg',
-    rating: 4.95,
-    completedDeliveries: 428,
-    status: 'BUSY',
-    currentDistrict: 'Plateau / Centre des Affaires',
-    lat: 13.5165,
-    lng: 2.1120,
-    batteryLevel: 92,
-    earningsTodayFcfa: 16500,
-    isBackgroundChecked: true
-  },
-  {
-    id: 'drv-02',
-    name: 'Abdoulaye Soumana',
-    phone: '+227 88 12 34 56',
-    vehicle: 'Moto Boxer 150',
-    licensePlate: 'RN-3129-NE',
-    photoUrl: '/src/assets/images/faucon_express_courier_1793266544653.jpg',
-    rating: 4.88,
-    completedDeliveries: 312,
-    status: 'AVAILABLE',
-    currentDistrict: 'Harobanda (Rive Droite)',
-    lat: 13.5030,
-    lng: 2.1025,
-    batteryLevel: 85,
-    earningsTodayFcfa: 12000,
-    isBackgroundChecked: true
-  },
-  {
-    id: 'drv-03',
-    name: 'Garba Oumarou',
-    phone: '+227 90 77 66 55',
-    vehicle: 'Scooter Express 125',
-    licensePlate: 'RN-9011-NE',
-    photoUrl: '/src/assets/images/faucon_express_courier_1793266544653.jpg',
-    rating: 4.91,
-    completedDeliveries: 195,
-    status: 'AVAILABLE',
-    currentDistrict: 'Boukoki / Katako',
-    lat: 13.5350,
-    lng: 2.1330,
-    batteryLevel: 97,
-    earningsTodayFcfa: 9500,
-    isBackgroundChecked: true
-  },
-  {
-    id: 'drv-04',
-    name: 'Salissou Amadou',
-    phone: '+227 94 22 11 33',
-    vehicle: 'Tricycle Cargo',
-    licensePlate: 'RN-5544-NE',
-    photoUrl: '/src/assets/images/faucon_express_courier_1793266544653.jpg',
-    rating: 4.97,
-    completedDeliveries: 540,
-    status: 'AVAILABLE',
-    currentDistrict: 'Wadata / Grand Marché',
-    lat: 13.5210,
-    lng: 2.1380,
-    batteryLevel: 88,
-    earningsTodayFcfa: 21000,
-    isBackgroundChecked: true
-  }
-];
+export const INITIAL_DRIVERS: Driver[] = [];
 
 export const INITIAL_STOCK: StockItem[] = [
   {
@@ -244,56 +175,7 @@ export const INITIAL_STOCK: StockItem[] = [
   }
 ];
 
-export const INITIAL_TRANSACTIONS: FinancialTransaction[] = [
-  {
-    id: 'tx-1001',
-    orderNumber: 'FCX-2026-7841',
-    type: 'PAYMENT_RECEIVED',
-    method: 'MY_NITA',
-    amountFcfa: 2500,
-    status: 'CONFIRMED',
-    reference: 'NITA-TX-99812401',
-    senderPhone: '+227 96 11 22 33',
-    timestamp: '2026-10-29 09:14',
-    notes: 'Règlement express MY Nita vérifié avec succès'
-  },
-  {
-    id: 'tx-1002',
-    orderNumber: 'FCX-2026-7840',
-    type: 'PAYMENT_RECEIVED',
-    method: 'AMANATA',
-    amountFcfa: 3000,
-    status: 'CONFIRMED',
-    reference: 'AMN-TRANSFER-48190',
-    senderPhone: '+227 90 44 55 66',
-    timestamp: '2026-10-29 08:45',
-    notes: 'Transfert Amanata validé au guichet'
-  },
-  {
-    id: 'tx-1003',
-    orderNumber: 'FCX-2026-7839',
-    type: 'PAYMENT_RECEIVED',
-    method: 'CASH',
-    amountFcfa: 1500,
-    status: 'CONFIRMED',
-    reference: 'CASH-REC-7839',
-    senderPhone: '+227 97 88 99 00',
-    timestamp: '2026-10-29 08:12',
-    notes: 'Espèces encaissées par livreur Moussa Ibrahim'
-  },
-  {
-    id: 'tx-1004',
-    orderNumber: 'FCX-2026-7838',
-    type: 'DRIVER_PAYOUT',
-    method: 'MY_NITA',
-    amountFcfa: 8400,
-    status: 'CONFIRMED',
-    reference: 'NITA-DISB-44120',
-    senderPhone: '+227 99 61 40 98',
-    timestamp: '2026-10-29 07:30',
-    notes: 'Versement commission livreur Moussa Ibrahim'
-  }
-];
+export const INITIAL_TRANSACTIONS: FinancialTransaction[] = [];
 
 export const DEFAULT_SETTINGS: AdminSettings = {
   ownerName: 'Abdoulkader Alio',
